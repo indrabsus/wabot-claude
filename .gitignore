@@ -1,0 +1,5 @@
+node_modules/
+auth_session/
+.env
+qr.png
+npm-debug.log*
