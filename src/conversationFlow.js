@@ -79,7 +79,7 @@ async function handleIncomingMessage({ sock, remoteJid, text }) {
     await reply(
       sock,
       remoteJid,
-      `🧠 *Selamat Datang di Konsel.AI - Bimbingan Konseling*\nSMK Sangkuriang 1 Cimahi\n\nLayanan konseling digital rahasia, nyaman, dan siap mendengarkan cerita kamu.\n\nSilakan masukkan *NISN* kamu sebagai username:\n_(Ketik 'batal' untuk kembali)_`
+      `🧠 *Selamat Datang di Konsel.AI - Bimbingan Konseling*\nSMK Sangkuriang 1 Cimahi\n\nLayanan konseling digital rahasia, nyaman, dan siap mendengarkan cerita kamu.\n\nSilakan masukkan *Username* akun Sakuci kamu:\n_(Ketik 'batal' untuk kembali)_`
     )
     return
   }
@@ -173,7 +173,7 @@ async function handleIncomingMessage({ sock, remoteJid, text }) {
     return
   }
 
-  // 2. Input Username (NISN)
+  // 2. Input Username
   if (session && session.step === "BK_AUTH_USERNAME") {
     session.updatedAt = Date.now()
     session.bkUsername = trimmed
@@ -181,7 +181,7 @@ async function handleIncomingMessage({ sock, remoteJid, text }) {
     await reply(
       sock,
       remoteJid,
-      `NISN: *${trimmed}*\n\nSekarang masukkan *kata sandi* (password) akun Konsel.AI kamu:\n_(Ketik 'batal' untuk membatalkan)_`
+      `Username: *${trimmed}*\n\nSekarang masukkan *kata sandi* (password) akun Sakuci kamu:\n_(Ketik 'batal' untuk membatalkan)_`
     )
     return
   }
@@ -210,7 +210,7 @@ async function handleIncomingMessage({ sock, remoteJid, text }) {
         await reply(
           sock,
           remoteJid,
-          `${data.message || "❌ Login ditolak. NISN atau kata sandi tidak sesuai."}\n\nKetik *5* untuk mencoba lagi, atau ketik *halo* untuk ke menu utama.`
+          `${data.message || "❌ Login ditolak. Username atau kata sandi tidak sesuai."}\n\nKetik *5* untuk mencoba lagi, atau ketik *halo* untuk ke menu utama.`
         )
         return
       }
@@ -263,7 +263,7 @@ async function handleIncomingMessage({ sock, remoteJid, text }) {
       await reply(
         sock,
         remoteJid,
-        `🧠 *Selamat Datang di Konsel.AI - Bimbingan Konseling*\nSMK Sangkuriang 1 Cimahi\n\nLayanan konseling digital rahasia, nyaman, dan siap mendengarkan cerita kamu.\n\nSilakan masukkan *NISN* kamu sebagai username:\n_(Ketik 'batal' untuk kembali)_`
+        `🧠 *Selamat Datang di Konsel.AI - Bimbingan Konseling*\nSMK Sangkuriang 1 Cimahi\n\nLayanan konseling digital rahasia, nyaman, dan siap mendengarkan cerita kamu.\n\nSilakan masukkan *Username* akun Sakuci kamu:\n_(Ketik 'batal' untuk kembali)_`
       )
       return
     }
