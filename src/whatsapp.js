@@ -89,50 +89,54 @@ async function startWhatsapp() {
   })
 
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
-    if (type !== "notify") return
-
     for (const msg of messages) {
-      if (!msg.message || msg.key.fromMe) continue
+      if (!msg.message) continue
 
-      const remoteJid = msg.key.remoteJid
-      // Hanya proses pesan dari chat personal WhatsApp (@s.whatsapp.net)
-      if (!remoteJid || !remoteJid.endsWith("@s.whatsapp.net")) continue
+      const remoteJid = msg.key?.remoteJid || ""
 
-      // Abaikan pesan usang yang terkirim lebih dari 2 menit lalu (misal pesan offline saat bot mati)
-      if (msg.messageTimestamp) {
-        const messageAgeSeconds = Math.floor(Date.now() / 1000) - Number(msg.messageTimestamp)
-        if (messageAgeSeconds > 120) {
-          continue
-        }
+      // Abaikan broadcast status/story WhatsApp dan obrolan grup
+      if (remoteJid === "status@broadcast" || remoteJid.includes("@g.us")) continue
+
+      // Jika pesan terkirim dari nomor bot itu sendiri (misal tes kirim ke nomor sendiri)
+      if (msg.key.fromMe) {
+        console.log("ℹ️ [INFO] Pesan berasal dari nomor bot sendiri (fromMe=true). Gunakan nomor WhatsApp lain untuk menguji bot.")
+        continue
       }
 
-      // Dukung pesan sementara (ephemeral) dan view-once
+      // Dukung berbagai tipe pesan (ephemeral, view-once, edited, document caption)
       const content =
         msg.message.ephemeralMessage?.message ||
         msg.message.viewOnceMessage?.message ||
         msg.message.viewOnceMessageV2?.message ||
+        msg.message.documentWithCaptionMessage?.message ||
+        msg.message.editedMessage?.message?.protocolMessage?.editedMessage ||
         msg.message
 
       const text =
-        content.conversation ||
-        content.extendedTextMessage?.text ||
-        content.imageMessage?.caption ||
+        content?.conversation ||
+        content?.extendedTextMessage?.text ||
+        content?.imageMessage?.caption ||
+        content?.videoMessage?.caption ||
+        content?.buttonsResponseMessage?.selectedButtonId ||
+        content?.listResponseMessage?.singleSelectReply?.selectedRowId ||
+        content?.templateButtonReplyMessage?.selectedId ||
         ""
 
-      if (!text.trim()) continue
+      if (!text || !text.trim()) continue
 
-      console.log(`Pesan masuk dari ${remoteJid.replace("@s.whatsapp.net", "")}: ${text}`)
+      const cleanNumber = remoteJid.split("@")[0]
+      console.log(`📥 [PESAN MASUK] dari ${cleanNumber}: "${text.trim()}"`)
 
       pushChatLog({
-        nomor: remoteJid.replace("@s.whatsapp.net", ""),
-        pesan: text,
+        nomor: cleanNumber,
+        pesan: text.trim(),
         waktu: new Date().toISOString(),
       })
 
       try {
         await handleIncomingMessage({ sock, remoteJid, text: text.trim() })
       } catch (error) {
-        console.error("Gagal memproses pesan masuk:", error)
+        console.error(`❌ Gagal memproses pesan masuk dari ${cleanNumber}:`, error)
       }
     }
   })
