@@ -1,7 +1,8 @@
 const { normalizeNomor, isValidPhone } = require("./phoneUtils")
 
 const ADMIN_NUMBER = process.env.ADMIN_NUMBER || "081380837591"
-const SESSION_TIMEOUT_MS = 15 * 60 * 1000 // 15 menit batas inaktivitas sesi
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000 // 30 menit batas inaktivitas sesi
+const KONSEL_AI_URL = (process.env.KONSEL_AI_URL || "http://localhost:3000").replace(/\/$/, "")
 
 const TRIGGER_WORDS = [
   "assalamualaikum",
@@ -11,7 +12,11 @@ const TRIGGER_WORDS = [
   "hallo",
   "hai",
   "hi",
+  "menu",
+  "p",
 ]
+
+const BK_TRIGGER_WORDS = ["bk", "konsel", "konseling", "konsel.ai", "curhat"]
 
 const RESET_WORDS = ["batal", "cancel", "reset", "ulang"]
 
@@ -22,13 +27,14 @@ const ROLE_MAP = {
   4: "Umum",
 }
 
-const WELCOME_MESSAGE = `Selamat Datang di SMK Sangkuriang 1 Cimahi
-Silakan pilih nomor untuk melanjutkan, anda sebagai apa?
+const WELCOME_MESSAGE = `Selamat Datang di SMK Sangkuriang 1 Cimahi 👋
+Silakan pilih nomor untuk melanjutkan:
 
-1. Guru
-2. Siswa
-3. Orang Tua
-4. Umum
+1. Guru (Kritik & Saran)
+2. Siswa (Kritik & Saran)
+3. Orang Tua (Kritik & Saran)
+4. Umum (Kritik & Saran)
+5. Konsel.AI (Bimbingan Konseling Siswa) 🧠💬
 
 (Ketik 'batal' kapan saja untuk membatalkan)`
 
@@ -50,6 +56,11 @@ function isTrigger(text) {
   return TRIGGER_WORDS.some((word) => normalized === word || normalized.startsWith(word + " ") || normalized.startsWith(word + ","))
 }
 
+function isBkTrigger(text) {
+  const normalized = text.toLowerCase().trim()
+  return BK_TRIGGER_WORDS.some((word) => normalized === word || normalized.startsWith(word + " "))
+}
+
 async function reply(sock, remoteJid, text) {
   console.log(`Balasan bot ke ${remoteJid.replace("@s.whatsapp.net", "")}: ${text.split("\n")[0]}${text.includes("\n") ? " ..." : ""}`)
   await sock.sendMessage(remoteJid, { text })
@@ -59,9 +70,34 @@ async function handleIncomingMessage({ sock, remoteJid, text }) {
   const trimmed = text.trim()
   const lower = trimmed.toLowerCase()
 
+  // Shortcut langsung ke Konsel.AI jika mengetik 'bk', 'konsel', 'curhat'
+  if (isBkTrigger(trimmed)) {
+    sessions.set(remoteJid, {
+      step: "BK_AUTH_USERNAME",
+      updatedAt: Date.now(),
+    })
+    await reply(
+      sock,
+      remoteJid,
+      `🧠 *Selamat Datang di Konsel.AI - Bimbingan Konseling*\nSMK Sangkuriang 1 Cimahi\n\nLayanan konseling digital rahasia, nyaman, dan siap mendengarkan cerita kamu.\n\nSilakan masukkan *NISN* kamu sebagai username:\n_(Ketik 'batal' untuk kembali)_`
+    )
+    return
+  }
+
   // Fitur batal/reset sesi kapan saja
   if (RESET_WORDS.includes(lower)) {
-    if (sessions.has(remoteJid)) {
+    const activeSession = sessions.get(remoteJid)
+    if (activeSession) {
+      // Jika sedang dalam sesi konseling BK, panggil API end
+      if (activeSession.step === "BK_CHATTING" && activeSession.sessionId) {
+        try {
+          await fetch(`${KONSEL_AI_URL}/api/bot/end`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sessionId: activeSession.sessionId }),
+          })
+        } catch (_) {}
+      }
       sessions.delete(remoteJid)
       await reply(sock, remoteJid, "Percakapan telah dibatalkan. Kirim 'halo' jika ingin memulai kembali.")
       return
@@ -74,6 +110,136 @@ async function handleIncomingMessage({ sock, remoteJid, text }) {
     sessions.delete(remoteJid)
     session = null
   }
+
+  // =========================================================================
+  // ALUR BIMBINGAN KONSELING (KONSEL.AI)
+  // =========================================================================
+
+  // 1. Sedang aktif mengobrol dengan AI Konselor
+  if (session && session.step === "BK_CHATTING") {
+    session.updatedAt = Date.now()
+
+    // Cek perintah selesai
+    if (["selesai", "keluar", "stop", "sudah", "bye"].includes(lower)) {
+      try {
+        await fetch(`${KONSEL_AI_URL}/api/bot/end`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId: session.sessionId }),
+        })
+      } catch (err) {
+        console.error("Gagal menutup sesi konseling di server:", err?.message)
+      }
+
+      sessions.delete(remoteJid)
+      await reply(
+        sock,
+        remoteJid,
+        "Sesi konseling telah diakhiri. Terima kasih sudah bercerita di Konsel.AI 🙏\nTetap semangat, jaga kesehatan mentalmu, dan jangan ragu datang ke ruang BK jika butuh teman bicara secara langsung.\n\nKetik *halo* untuk kembali ke menu utama."
+      )
+      return
+    }
+
+    // Kirim pesan siswa ke server Konsel.AI
+    try {
+      const res = await fetch(`${KONSEL_AI_URL}/api/bot/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: session.sessionId,
+          studentId: session.student?.id,
+          message: trimmed,
+        }),
+      })
+
+      const data = await res.json()
+      if (data.success && data.reply) {
+        await reply(sock, remoteJid, data.reply)
+      } else {
+        await reply(
+          sock,
+          remoteJid,
+          data.message || "Maaf, terjadi kendala saat memproses jawaban AI. Silakan coba ketik lagi pesanmu."
+        )
+      }
+    } catch (err) {
+      console.error("Error panggil Konsel.AI chat:", err?.message)
+      await reply(
+        sock,
+        remoteJid,
+        "⚠️ Maaf, server Konsel.AI sedang tidak dapat dihubungi. Silakan coba beberapa saat lagi atau hubungi Guru BK."
+      )
+    }
+    return
+  }
+
+  // 2. Input Username (NISN)
+  if (session && session.step === "BK_AUTH_USERNAME") {
+    session.updatedAt = Date.now()
+    session.bkUsername = trimmed
+    session.step = "BK_AUTH_PASSWORD"
+    await reply(
+      sock,
+      remoteJid,
+      `NISN: *${trimmed}*\n\nSekarang masukkan *kata sandi* (password) akun Konsel.AI kamu:\n_(Ketik 'batal' untuk membatalkan)_`
+    )
+    return
+  }
+
+  // 3. Input Password & Validasi ke Backend
+  if (session && session.step === "BK_AUTH_PASSWORD") {
+    session.updatedAt = Date.now()
+    const password = trimmed
+    const username = session.bkUsername
+    const studentPhone = remoteJid.replace("@s.whatsapp.net", "")
+
+    try {
+      const res = await fetch(`${KONSEL_AI_URL}/api/bot/auth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username,
+          password,
+          phone: studentPhone,
+        }),
+      })
+
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        sessions.delete(remoteJid)
+        await reply(
+          sock,
+          remoteJid,
+          `${data.message || "❌ Login ditolak. NISN atau kata sandi tidak sesuai."}\n\nKetik *5* untuk mencoba lagi, atau ketik *halo* untuk ke menu utama.`
+        )
+        return
+      }
+
+      // Berhasil autentikasi!
+      session.step = "BK_CHATTING"
+      session.sessionId = data.sessionId
+      session.student = data.student
+
+      await reply(
+        sock,
+        remoteJid,
+        `${data.message}\n\n📌 *Petunjuk:* Kamu bisa langsung curhat apa saja di sini dengan santai dan rahasia.\nKetik *selesai* atau *keluar* kapan saja jika ingin mengakhiri sesi konseling.`
+      )
+    } catch (err) {
+      console.error("Error panggil Konsel.AI auth:", err?.message)
+      sessions.delete(remoteJid)
+      await reply(
+        sock,
+        remoteJid,
+        "⚠️ Gagal menghubungkan ke server Konsel.AI. Pastikan aplikasi Konsel.AI di server aktif."
+      )
+    }
+    return
+  }
+
+  // =========================================================================
+  // ALUR MENU UTAMA & FORM KRITIK SARAN
+  // =========================================================================
 
   // Jika user mengetik kata trigger (halo, assalamualaikum, dll)
   if (isTrigger(trimmed)) {
@@ -91,10 +257,25 @@ async function handleIncomingMessage({ sock, remoteJid, text }) {
   session.updatedAt = Date.now()
 
   if (session.step === "MENU") {
+    // Menu 5: Konsel.AI
+    if (trimmed === "5" || lower === "konsel" || lower === "bk") {
+      session.step = "BK_AUTH_USERNAME"
+      await reply(
+        sock,
+        remoteJid,
+        `🧠 *Selamat Datang di Konsel.AI - Bimbingan Konseling*\nSMK Sangkuriang 1 Cimahi\n\nLayanan konseling digital rahasia, nyaman, dan siap mendengarkan cerita kamu.\n\nSilakan masukkan *NISN* kamu sebagai username:\n_(Ketik 'batal' untuk kembali)_`
+      )
+      return
+    }
+
     const role = ROLE_MAP[trimmed]
 
     if (!role) {
-      await reply(sock, remoteJid, "Pilihan tidak valid. Silakan ketik angka 1-4 sesuai menu di atas atau ketik 'batal' untuk berhenti.")
+      await reply(
+        sock,
+        remoteJid,
+        "Pilihan tidak valid. Silakan ketik angka 1-5 sesuai menu di atas atau ketik 'batal' untuk berhenti."
+      )
       return
     }
 
@@ -165,7 +346,7 @@ ${session.kritikSaran}`
       console.error("Nomor ADMIN_NUMBER belum diisi atau formatnya tidak valid.")
     }
 
-    await reply(sock, remoteJid, "Terima kasih, kritik dan saran Anda sudah kami terima.")
+    await reply(sock, remoteJid, "Terima kasih, kritik dan saran Anda sudah kami terima.\n\nKetik 'halo' untuk kembali ke menu utama.")
     sessions.delete(remoteJid)
   }
 }
