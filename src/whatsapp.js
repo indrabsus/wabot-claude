@@ -34,6 +34,12 @@ function pushChatLog(entry) {
 }
 
 async function startWhatsapp() {
+  if (sock) {
+    try {
+      sock.ev.removeAllListeners()
+    } catch (_) {}
+  }
+
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER)
 
   sock = makeWASocket({
@@ -71,11 +77,13 @@ async function startWhatsapp() {
 
       console.log(
         "Koneksi WhatsApp terputus.",
-        shouldReconnect ? "Mencoba menyambung ulang..." : "Sesi logout, silakan hapus folder auth_session lalu scan ulang QR."
+        shouldReconnect ? "Mencoba menyambung ulang dalam 3 detik..." : "Sesi logout, silakan hapus folder auth_session lalu scan ulang QR."
       )
 
       if (shouldReconnect) {
-        startWhatsapp()
+        setTimeout(() => {
+          startWhatsapp().catch((error) => console.error("Gagal startWhatsapp saat reconnect:", error))
+        }, 3000)
       }
     }
   })
@@ -87,12 +95,28 @@ async function startWhatsapp() {
       if (!msg.message || msg.key.fromMe) continue
 
       const remoteJid = msg.key.remoteJid
-      if (!remoteJid || remoteJid.endsWith("@g.us") || remoteJid === "status@broadcast") continue
+      // Hanya proses pesan dari chat personal WhatsApp (@s.whatsapp.net)
+      if (!remoteJid || !remoteJid.endsWith("@s.whatsapp.net")) continue
+
+      // Abaikan pesan usang yang terkirim lebih dari 2 menit lalu (misal pesan offline saat bot mati)
+      if (msg.messageTimestamp) {
+        const messageAgeSeconds = Math.floor(Date.now() / 1000) - Number(msg.messageTimestamp)
+        if (messageAgeSeconds > 120) {
+          continue
+        }
+      }
+
+      // Dukung pesan sementara (ephemeral) dan view-once
+      const content =
+        msg.message.ephemeralMessage?.message ||
+        msg.message.viewOnceMessage?.message ||
+        msg.message.viewOnceMessageV2?.message ||
+        msg.message
 
       const text =
-        msg.message.conversation ||
-        msg.message.extendedTextMessage?.text ||
-        msg.message.imageMessage?.caption ||
+        content.conversation ||
+        content.extendedTextMessage?.text ||
+        content.imageMessage?.caption ||
         ""
 
       if (!text.trim()) continue

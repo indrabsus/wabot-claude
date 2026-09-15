@@ -20,9 +20,14 @@ Trigger (case-insensitive): `assalamualaikum`, `asalamualaikum`, `halo`, `hai` (
    3. Orang Tua
    4. Umum
    ```
-3. User membalas angka 1-4 → bot minta nomor HP.
-4. User mengirim nomor HP → bot minta kritik & saran.
-5. User mengirim kritik & saran → bot mengirim rekap (peran, no. HP, no. WhatsApp pengirim, isi kritik/saran) ke **nomor admin** (default `081380837591`, bisa diubah lewat `.env`), lalu membalas ucapan terima kasih ke user dan sesi selesai.
+3. User membalas angka 1-4 → bot minta nama.
+4. User mengirim nama → bot minta nomor HP.
+5. User mengirim nomor HP → bot minta kritik & saran.
+6. User mengirim kritik & saran → bot mengirim rekap (nama, peran, no. HP, no. WhatsApp pengirim, isi kritik/saran) ke **nomor admin** (default `081380837591`, bisa diubah lewat `.env`), lalu membalas ucapan terima kasih ke user dan sesi selesai.
+
+> **Catatan:**
+> - Pengguna dapat membatalkan percakapan kapan saja dengan mengetik `batal`, `cancel`, `reset`, atau `ulang`.
+> - Sesi percakapan otomatis kedaluwarsa jika tidak ada aktivitas selama 15 menit.
 
 Progres percakapan disimpan di memori (per proses), didefinisikan di [`src/conversationFlow.js`](src/conversationFlow.js).
 
